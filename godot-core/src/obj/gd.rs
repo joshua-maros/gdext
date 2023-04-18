@@ -15,7 +15,8 @@ use sys::types::OpaqueObject;
 use sys::{ffi_methods, interface_fn, static_assert_eq_size, GodotFfi, PtrcallType};
 
 use crate::builtin::meta::{ClassName, VariantMetadata};
-use crate::builtin::{FromVariant, ToVariant, Variant, VariantConversionError};
+use crate::builtin::{FromVariant, GodotString, ToVariant, Variant, VariantConversionError};
+use crate::engine::Object;
 use crate::obj::dom::Domain as _;
 use crate::obj::mem::Memory as _;
 use crate::obj::{cap, dom, mem, Export, GodotClass, Inherits, Share};
@@ -329,6 +330,12 @@ impl<T: GodotClass> Gd<T> {
     where
         U: GodotClass,
     {
+        // Temporary workaround for bug in Godot that makes casts always succeed. (See https://github.com/godot-rust/gdext/issues/158)
+        let as_obj = unsafe { self.ffi_cast::<Object>() }.expect("Everything inherits object");
+        if !as_obj.is_class(GodotString::from(U::CLASS_NAME)) {
+            return Err(self);
+        }
+
         // The unsafe { std::mem::transmute<&T, &Base>(self.inner()) } relies on the C++ static_cast class casts
         // to return the same pointer, however in theory those may yield a different pointer (VTable offset,
         // virtual inheritance etc.). It *seems* to work so far, but this is no indication it's not UB.
