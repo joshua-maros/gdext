@@ -332,7 +332,9 @@ impl<T: GodotClass> Gd<T> {
     {
         // Temporary workaround for bug in Godot that makes casts always succeed. (See https://github.com/godot-rust/gdext/issues/158)
         let as_obj = unsafe { self.ffi_cast::<Object>() }.expect("Everything inherits object");
-        if !as_obj.is_class(GodotString::from(U::CLASS_NAME)) {
+        let is_correct_class = as_obj.is_class(GodotString::from(U::CLASS_NAME));
+        std::mem::forget(as_obj);
+        if !is_correct_class {
             return Err(self);
         }
 
