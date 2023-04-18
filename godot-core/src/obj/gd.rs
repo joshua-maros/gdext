@@ -225,7 +225,9 @@ impl<T: GodotClass> Gd<T> {
 
         obj
     }
+}
 
+impl<T> Gd<T> {
     /// Returns the instance ID of this object, or `None` if the object is dead.
     pub fn instance_id_or_none(&self) -> Option<InstanceId> {
         let known_id = match self.cached_instance_id.get() {
@@ -271,7 +273,9 @@ impl<T: GodotClass> Gd<T> {
         // This call refreshes the instance ID, and recognizes dead objects.
         self.instance_id_or_none().is_some()
     }
+}
 
+impl<T: GodotClass> Gd<T> {
     /// **Upcast:** convert into a smart pointer to a base class. Always succeeds.
     ///
     /// Moves out of this value. If you want to create _another_ smart pointer instance,
