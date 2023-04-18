@@ -5,6 +5,7 @@
  */
 
 use crate::builtin::{GodotString, StringName};
+use crate::obj::Export;
 use godot_ffi as sys;
 use godot_ffi::GodotFfi;
 use std::{fmt, ptr};
@@ -282,5 +283,11 @@ impl fmt::Debug for Variant {
         // TODO include variant type name
         let s = self.stringify();
         write!(f, "Variant({s})")
+    }
+}
+
+impl Export for Variant {
+    fn export(&self) -> Self {
+        self.clone()
     }
 }
