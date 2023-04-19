@@ -15,7 +15,8 @@ use sys::types::OpaqueObject;
 use sys::{ffi_methods, interface_fn, static_assert_eq_size, GodotFfi, PtrcallType};
 
 use crate::builtin::meta::{ClassName, VariantMetadata};
-use crate::builtin::{FromVariant, ToVariant, Variant, VariantConversionError};
+use crate::builtin::{FromVariant, GodotString, ToVariant, Variant, VariantConversionError};
+use crate::engine::Object;
 use crate::obj::dom::Domain as _;
 use crate::obj::mem::Memory as _;
 use crate::obj::{cap, dom, mem, Export, GodotClass, Inherits, Share};
@@ -324,11 +325,31 @@ impl<T: GodotClass> Gd<T> {
         })
     }
 
+    // Temporary workaround for bug in Godot that makes casts always succeed.
+    // (See https://github.com/godot-rust/gdext/issues/158)
+    // TODO remove this code once the bug is fixed upstream.
+    fn is_cast_valid<U>(&self) -> bool
+    where
+        U: GodotClass,
+    {
+        let as_obj = unsafe { self.ffi_cast::<Object>() }.expect("Everything inherits object");
+        let cast_is_valid = as_obj.is_class(GodotString::from(U::CLASS_NAME));
+        std::mem::forget(as_obj);
+        cast_is_valid
+    }
+
     /// Returns `Ok(cast_obj)` on success, `Err(self)` on error
     fn owned_cast<U>(self) -> Result<Gd<U>, Self>
     where
         U: GodotClass,
     {
+        // Temporary workaround for bug in Godot that makes casts always
+        // succeed. (See https://github.com/godot-rust/gdext/issues/158)
+        // TODO remove this check once the bug is fixed upstream.
+        if !self.is_cast_valid::<U>() {
+            return Err(self);
+        }
+
         // The unsafe { std::mem::transmute<&T, &Base>(self.inner()) } relies on the C++ static_cast class casts
         // to return the same pointer, however in theory those may yield a different pointer (VTable offset,
         // virtual inheritance etc.). It *seems* to work so far, but this is no indication it's not UB.
@@ -633,10 +654,13 @@ impl<T: GodotClass> Export for Gd<T> {
 // ----------------------------------------------------------------------------------------------------------------------------------------------
 // Trait impls
 
-impl<T: GodotClass> FromVariant for Gd<T> {
+impl<T: GodotClass + Inherits<Object>> FromVariant for Gd<T> {
     fn try_from_variant(variant: &Variant) -> Result<Self, VariantConversionError> {
         let result_or_none = unsafe {
-            Self::from_sys_init_opt(|self_ptr| {
+            // TODO replace Gd::<Object> with Self when Godot stops allowing
+            // illegal conversions (See
+            // https://github.com/godot-rust/gdext/issues/158)
+            Gd::<Object>::from_sys_init_opt(|self_ptr| {
                 let converter = sys::builtin_fn!(object_from_variant);
                 converter(self_ptr, variant.var_sys());
             })
@@ -646,6 +670,10 @@ impl<T: GodotClass> FromVariant for Gd<T> {
         // (This behaves differently in the opposite direction `object_to_variant`.)
         result_or_none
             .map(|obj| obj.with_inc_refcount())
+            // TODO remove this cast when Godot stops allowing illegal conversions
+            // (See https://github.com/godot-rust/gdext/issues/158)
+            .map(|obj| obj.try_cast())
+            .flatten()
             .ok_or(VariantConversionError)
     }
 }
