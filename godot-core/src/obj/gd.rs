@@ -324,16 +324,28 @@ impl<T: GodotClass> Gd<T> {
         })
     }
 
+    // Temporary workaround for bug in Godot that makes casts always succeed.
+    // (See https://github.com/godot-rust/gdext/issues/158)
+    // TODO remove this code once the bug is fixed upstream.
+    fn is_cast_valid<U>(&self) -> bool
+    where
+        U: GodotClass,
+    {
+        let as_obj = unsafe { self.ffi_cast::<Object>() }.expect("Everything inherits object");
+        let cast_is_valid = as_obj.is_class(GodotString::from(U::CLASS_NAME));
+        std::mem::forget(as_obj);
+        cast_is_valid
+    }
+
     /// Returns `Ok(cast_obj)` on success, `Err(self)` on error
     fn owned_cast<U>(self) -> Result<Gd<U>, Self>
     where
         U: GodotClass,
     {
-        // Temporary workaround for bug in Godot that makes casts always succeed. (See https://github.com/godot-rust/gdext/issues/158)
-        let as_obj = unsafe { self.ffi_cast::<Object>() }.expect("Everything inherits object");
-        let is_correct_class = as_obj.is_class(GodotString::from(U::CLASS_NAME));
-        std::mem::forget(as_obj);
-        if !is_correct_class {
+        // Temporary workaround for bug in Godot that makes casts always
+        // succeed. (See https://github.com/godot-rust/gdext/issues/158)
+        // TODO remove this check once the bug is fixed upstream.
+        if !self.is_cast_valid::<U>() {
             return Err(self);
         }
 
@@ -641,10 +653,13 @@ impl<T: GodotClass> Export for Gd<T> {
 // ----------------------------------------------------------------------------------------------------------------------------------------------
 // Trait impls
 
-impl<T: GodotClass> FromVariant for Gd<T> {
+impl<T: GodotClass + Inherits<Object>> FromVariant for Gd<T> {
     fn try_from_variant(variant: &Variant) -> Result<Self, VariantConversionError> {
         let result_or_none = unsafe {
-            Self::from_sys_init_opt(|self_ptr| {
+            // TODO replace Gd::<Object> with Self when Godot stops allowing
+            // illegal conversions (See
+            // https://github.com/godot-rust/gdext/issues/158)
+            Gd::<Object>::from_sys_init_opt(|self_ptr| {
                 let converter = sys::builtin_fn!(object_from_variant);
                 converter(self_ptr, variant.var_sys());
             })
@@ -654,6 +669,10 @@ impl<T: GodotClass> FromVariant for Gd<T> {
         // (This behaves differently in the opposite direction `object_to_variant`.)
         result_or_none
             .map(|obj| obj.with_inc_refcount())
+            // TODO remove this cast when Godot stops allowing illegal conversions
+            // (See https://github.com/godot-rust/gdext/issues/158)
+            .map(|obj| obj.try_cast())
+            .flatten()
             .ok_or(VariantConversionError)
     }
 }
